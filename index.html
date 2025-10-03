@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Irrigation Dashboard</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 p-6">
+
+  <div class="max-w-7xl mx-auto">
+
+    <!-- Header -->
+    <div class="bg-white rounded-2xl shadow-lg p-6 mb-6 flex justify-between items-center">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-800 flex items-center gap-3">
+          <i data-lucide="leaf" class="text-green-600 w-9 h-9"></i>
+          Smart Irrigation & Crop Advisory System
+        </h1>
+        <p class="text-gray-600 mt-2">AI-Powered Agriculture Monitoring</p>
+      </div>
+      <div class="text-right">
+        <div class="text-sm text-gray-500">Last Updated</div>
+        <div class="text-lg font-semibold" id="time"></div>
+      </div>
+    </div>
+
+    <!-- Sensor Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+      <!-- Soil Moisture -->
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <div class="flex items-center justify-between mb-4">
+          <i data-lucide="droplets" class="text-blue-500 w-8 h-8"></i>
+          <span class="px-3 py-1 rounded-full bg-green-500 text-white text-xs font-bold">✓ NORMAL</span>
+        </div>
+        <h3 class="text-gray-600 text-sm font-medium">Soil Moisture</h3>
+        <p class="text-3xl font-bold text-gray-800 mt-2">45%</p>
+      </div>
+
+      <!-- Temperature -->
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <div class="flex items-center justify-between mb-4">
+          <i data-lucide="thermometer" class="text-red-500 w-8 h-8"></i>
+          <span class="px-3 py-1 rounded-full bg-orange-100 text-orange-700 text-xs font-bold">LIVE</span>
+        </div>
+        <h3 class="text-gray-600 text-sm font-medium">Temperature</h3>
+        <p class="text-3xl font-bold text-gray-800 mt-2">28°C</p>
+      </div>
+
+      <!-- Humidity -->
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <div class="flex items-center justify-between mb-4">
+          <i data-lucide="wind" class="text-cyan-500 w-8 h-8"></i>
+        </div>
+        <h3 class="text-gray-600 text-sm font-medium">Humidity</h3>
+        <p class="text-3xl font-bold text-gray-800 mt-2">65%</p>
+      </div>
+
+      <!-- Light Intensity -->
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <div class="flex items-center justify-between mb-4">
+          <i data-lucide="sun" class="text-yellow-500 w-8 h-8"></i>
+        </div>
+        <h3 class="text-gray-600 text-sm font-medium">Light Intensity</h3>
+        <p class="text-3xl font-bold text-gray-800 mt-2">45K lux</p>
+      </div>
+    </div>
+
+    <!-- Recommended Crop to Sow -->
+    <div class="bg-white rounded-xl shadow-md p-6 mb-6">
+      <h2 class="text-xl font-bold mb-4 text-gray-800">🌾 Recommended Crop to Sow</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+        <!-- Main Recommended Crop -->
+        <div class="bg-green-50 border-2 border-green-200 rounded-xl p-6 text-center">
+          <div class="text-5xl mb-2">🌱</div>
+          <h3 class="text-2xl font-bold text-green-700">Tomato</h3>
+          <p class="text-sm text-gray-600 mt-1">Best suited for your soil & climate</p>
+          <div class="mt-4">
+            <div class="bg-green-200 rounded-full h-3 mb-2">
+              <div class="bg-green-600 h-3 rounded-full" style="width: 85%"></div>
+            </div>
+            <p class="text-sm font-semibold text-green-700">85% Confidence</p>
+          </div>
+        </div>
+
+        <!-- Alternative Crops with Confidence -->
+        <div>
+          <h4 class="font-semibold text-gray-700 mb-3">Alternative Crops & Confidence</h4>
+          <div class="space-y-3">
+            <!-- Corn -->
+            <div>
+              <div class="flex justify-between mb-1">
+                <span class="text-sm font-medium text-gray-700">Corn</span>
+                <span class="text-sm font-medium text-gray-700">70%</span>
+              </div>
+              <div class="bg-gray-200 h-2 rounded-full">
+                <div class="bg-blue-500 h-2 rounded-full" style="width: 70%"></div>
+              </div>
+            </div>
+            <!-- Wheat -->
+            <div>
+              <div class="flex justify-between mb-1">
+                <span class="text-sm font-medium text-gray-700">Wheat</span>
+                <span class="text-sm font-medium text-gray-700">60%</span>
+              </div>
+              <div class="bg-gray-200 h-2 rounded-full">
+                <div class="bg-yellow-500 h-2 rounded-full" style="width: 60%"></div>
+              </div>
+            </div>
+            <!-- Potato -->
+            <div>
+              <div class="flex justify-between mb-1">
+                <span class="text-sm font-medium text-gray-700">Potato</span>
+                <span class="text-sm font-medium text-gray-700">50%</span>
+              </div>
+              <div class="bg-gray-200 h-2 rounded-full">
+                <div class="bg-red-500 h-2 rounded-full" style="width: 50%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-white rounded-xl shadow-lg p-6">
+        <h2 class="text-xl font-bold mb-4 text-gray-800">📊 Moisture & Temperature (24h)</h2>
+        <canvas id="moistureChart"></canvas>
+      </div>
+      <div class="bg-white rounded-xl shadow-lg p-6">
+        <h2 class="text-xl font-bold mb-4 text-gray-800">💧 Water Usage Comparison</h2>
+        <canvas id="waterChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Crop Distribution -->
+    <div class="bg-white rounded-xl shadow-lg p-6">
+      <h2 class="text-xl font-bold mb-4 text-gray-800">🌱 Crop Distribution</h2>
+      <canvas id="cropChart"></canvas>
+    </div>
+
+  </div>
+
+  <!-- JS -->
+  <script>
+    // Update Time
+    document.getElementById("time").textContent = new Date().toLocaleTimeString();
+
+    // Moisture & Temp Chart
+    new Chart(document.getElementById("moistureChart"), {
+      type: "line",
+      data: {
+        labels: ["00:00","04:00","08:00","12:00","16:00","20:00","24:00"],
+        datasets: [
+          { label: "Moisture %", data: [65,58,52,45,38,55,63], borderColor: "#3b82f6", fill: false },
+          { label: "Temperature °C", data: [24,22,26,32,30,26,24], borderColor: "#ef4444", fill: false }
+        ]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+
+    // Water Usage Chart
+    new Chart(document.getElementById("waterChart"), {
+      type: "bar",
+      data: {
+        labels: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+        datasets: [
+          { label: "Traditional (L)", data: [45,48,42,50,46,44,47], backgroundColor: "#ef4444" },
+          { label: "Smart System (L)", data: [28,30,26,32,29,27,30], backgroundColor: "#10b981" }
+        ]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+
+    // Crop Distribution
+    new Chart(document.getElementById("cropChart"), {
+      type: "pie",
+      data: {
+        labels: ["Tomato","Wheat","Corn","Rice"],
+        datasets: [ {
+          data: [35,25,20,20],
+          backgroundColor: ["#10b981","#3b82f6","#f59e0b","#ef4444"]
+        } ]
+      },
+      options: { responsive: true }
+    });
+
+    // Activate icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>
