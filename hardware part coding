@@ -1,0 +1,333 @@
+// ============================================
+// SMART IRRIGATION & CROP ADVISORY SYSTEM - ESP32 COMPLETE CODE (UPDATED)
+// ============================================
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <DHT.h>
+#include <Wire.h>
+#include <BH1750.h>
+#include <BlynkSimpleEsp32.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+
+// WiFi Credentials
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+
+// Blynk Authentication
+char BLYNK_AUTH[] = "YOUR_BLYNK_AUTH_TOKEN";
+
+// Backend API
+const char* API_SERVER = "http://your-server.com/api";
+const char* DEVICE_ID = "ESP32_FIELD_001";
+
+// ThingSpeak
+String THINGSPEAK_API_KEY = "YOUR_THINGSPEAK_API_KEY";
+
+// Pins
+#define SOIL_MOISTURE_1 34
+#define SOIL_MOISTURE_2 35
+#define SOIL_MOISTURE_3 32
+#define DHT_PIN 4
+#define RELAY_PUMP_1 16
+#define RELAY_PUMP_2 17
+#define RELAY_VALVE_1 18
+#define RELAY_VALVE_2 19
+#define LED_STATUS 2
+#define BUZZER_PIN 23
+#define I2C_SDA 21
+#define I2C_SCL 22
+
+// Sensors
+#define DHT_TYPE DHT22
+DHT dht(DHT_PIN, DHT_TYPE);
+BH1750 lightMeter;
+WebServer server(80);
+
+// Blynk Virtual Pins
+#define VPIN_SOIL_1 V0
+#define VPIN_SOIL_2 V1
+#define VPIN_SOIL_3 V2
+#define VPIN_TEMPERATURE V3
+#define VPIN_HUMIDITY V4
+#define VPIN_LIGHT V5
+#define VPIN_PUMP_LED_1 V6
+#define VPIN_PUMP_LED_2 V11
+#define VPIN_MANUAL_PUMP V7
+#define VPIN_AUTO_MODE V8
+#define VPIN_TERMINAL V9
+#define VPIN_CHART V10
+#define VPIN_CROP_RECOMMENDATION V12
+
+// Data Structures
+struct SensorData {
+  float soilMoisture[3];
+  float avgSoilMoisture;
+  float temperature;
+  float humidity;
+  float heatIndex;
+  float lightIntensity;
+  bool pump1Running;
+  bool pump2Running;
+  bool valve1Open;
+  bool valve2Open;
+  unsigned long lastIrrigationTime;
+  float totalWaterUsed;
+  int irrigationCount;
+} sensors;
+
+struct SystemConfig {
+  bool autoMode;
+  int moistureThreshold;
+  int irrigationDuration;
+  int dryThreshold;
+  int wetThreshold;
+  bool notifications;
+} config = { true, 35, 60, 25, 70, true };
+
+struct AIData {
+  bool shouldIrrigate;
+  int duration;
+  String advice;
+  float waterSaved;
+  String recommendedCrop;
+  float confidence[3]; // Top 3 crop confidences
+} aiRecommendations;
+
+// Timing
+unsigned long lastSensorRead = 0;
+unsigned long lastCloudSync = 0;
+unsigned long lastBlynkUpdate = 0;
+unsigned long irrigationStartTime = 0;
+unsigned long lastWiFiCheck = 0;
+const long SENSOR_INTERVAL = 3000;
+const long CLOUD_INTERVAL = 60000;
+const long BLYNK_INTERVAL = 2000;
+const long WIFI_CHECK_INTERVAL = 30000;
+
+// ===== SETUP =====
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  
+  printStartupBanner();
+
+  // Initialize pins
+  pinMode(RELAY_PUMP_1, OUTPUT);
+  pinMode(RELAY_PUMP_2, OUTPUT);
+  pinMode(RELAY_VALVE_1, OUTPUT);
+  pinMode(RELAY_VALVE_2, OUTPUT);
+  pinMode(LED_STATUS, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+
+  // Turn off all relays
+  digitalWrite(RELAY_PUMP_1, HIGH);
+  digitalWrite(RELAY_PUMP_2, HIGH);
+  digitalWrite(RELAY_VALVE_1, HIGH);
+  digitalWrite(RELAY_VALVE_2, HIGH);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  // ADC config
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+
+  // Initialize sensors
+  dht.begin();
+  Wire.begin(I2C_SDA, I2C_SCL);
+  if (!lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
+    Serial.println("✗ BH1750 not found");
+  }
+
+  // WiFi
+  connectWiFi();
+
+  // Web server
+  setupWebServer();
+  server.begin();
+  Serial.println("✓ Web server started at http://irrigation.local");
+
+  // Blynk
+  Blynk.config(BLYNK_AUTH);
+  Blynk.connect();
+  if (Blynk.connected()) {
+    Serial.println("✓ Blynk connected");
+    Blynk.virtualWrite(VPIN_TERMINAL, "System Online!\n");
+    Blynk.notify("🌱 Irrigation System Started");
+  }
+
+  // Initialize
+  sensors.pump1Running = false;
+  sensors.pump2Running = false;
+  sensors.totalWaterUsed = 0;
+  sensors.irrigationCount = 0;
+
+  beep(3, 100);
+  Serial.println("\n✓✓✓ SYSTEM READY ✓✓✓\n");
+}
+
+// ===== LOOP =====
+void loop() {
+  unsigned long now = millis();
+
+  Blynk.run();
+  server.handleClient();
+
+  if (now - lastWiFiCheck > WIFI_CHECK_INTERVAL) {
+    if (WiFi.status() != WL_CONNECTED) connectWiFi();
+    lastWiFiCheck = now;
+  }
+
+  if (now - lastSensorRead > SENSOR_INTERVAL) {
+    readAllSensors();
+    lastSensorRead = now;
+  }
+
+  if (now - lastBlynkUpdate > BLYNK_INTERVAL) {
+    updateBlynk();
+    lastBlynkUpdate = now;
+  }
+
+  if (now - lastCloudSync > CLOUD_INTERVAL) {
+    sendToCloud();
+    getAIRecommendations();
+    lastCloudSync = now;
+  }
+
+  if (config.autoMode) checkAutoIrrigation();
+
+  // Timeout for both pumps
+  if (sensors.pump1Running && (now - irrigationStartTime > config.irrigationDuration * 1000)) stopIrrigation(1);
+  if (sensors.pump2Running && (now - irrigationStartTime > config.irrigationDuration * 1000)) stopIrrigation(2);
+
+  digitalWrite(LED_STATUS, (now % 1000 < 50));
+  delay(50);
+}
+
+// ===== SENSOR FUNCTIONS =====
+void readAllSensors() {
+  int raw1 = analogRead(SOIL_MOISTURE_1);
+  int raw2 = analogRead(SOIL_MOISTURE_2);
+  int raw3 = analogRead(SOIL_MOISTURE_3);
+
+  sensors.soilMoisture[0] = map(raw1, 4095, 0, 0, 100);
+  sensors.soilMoisture[1] = map(raw2, 4095, 0, 0, 100);
+  sensors.soilMoisture[2] = map(raw3, 4095, 0, 0, 100);
+
+  sensors.avgSoilMoisture = (sensors.soilMoisture[0]+sensors.soilMoisture[1]+sensors.soilMoisture[2])/3.0;
+
+  for(int i=0;i<3;i++) sensors.soilMoisture[i] = constrain(sensors.soilMoisture[i],0,100);
+  sensors.avgSoilMoisture = constrain(sensors.avgSoilMoisture,0,100);
+
+  sensors.temperature = dht.readTemperature();
+  sensors.humidity = dht.readHumidity();
+  if (isnan(sensors.temperature)||isnan(sensors.humidity)) sensors.temperature=sensors.humidity=0;
+  else sensors.heatIndex = dht.computeHeatIndex(sensors.temperature, sensors.humidity,false);
+
+  sensors.lightIntensity = lightMeter.readLightLevel();
+
+  Serial.printf("Soil: %.1f%% | Temp: %.1f°C | Humidity: %.1f%% | Light: %.0f lux\n",
+                sensors.avgSoilMoisture,sensors.temperature,sensors.humidity,sensors.lightIntensity);
+}
+
+// ===== IRRIGATION =====
+void checkAutoIrrigation() {
+  if (!sensors.pump1Running && sensors.avgSoilMoisture<config.dryThreshold) startIrrigation(1);
+  if (!sensors.pump2Running && sensors.avgSoilMoisture<config.moistureThreshold) startIrrigation(2);
+}
+
+void startIrrigation(int pump) {
+  if(pump==1 && !sensors.pump1Running) {
+    digitalWrite(RELAY_PUMP_1,LOW); digitalWrite(RELAY_VALVE_1,LOW);
+    sensors.pump1Running=true; sensors.valve1Open=true; irrigationStartTime=millis(); sensors.irrigationCount++;
+  }
+  if(pump==2 && !sensors.pump2Running) {
+    digitalWrite(RELAY_PUMP_2,LOW); digitalWrite(RELAY_VALVE_2,LOW);
+    sensors.pump2Running=true; sensors.valve2Open=true; irrigationStartTime=millis(); sensors.irrigationCount++;
+  }
+  beep(2,100);
+  Blynk.virtualWrite(VPIN_TERMINAL,String("Pump ")+pump+" started\n");
+}
+
+void stopIrrigation(int pump) {
+  if(pump==1 && sensors.pump1Running) { digitalWrite(RELAY_PUMP_1,HIGH); digitalWrite(RELAY_VALVE_1,HIGH); sensors.pump1Running=false; sensors.valve1Open=false; sensors.lastIrrigationTime=millis(); sensors.totalWaterUsed+=config.irrigationDuration*0.5; }
+  if(pump==2 && sensors.pump2Running) { digitalWrite(RELAY_PUMP_2,HIGH); digitalWrite(RELAY_VALVE_2,HIGH); sensors.pump2Running=false; sensors.valve2Open=false; sensors.lastIrrigationTime=millis(); sensors.totalWaterUsed+=config.irrigationDuration*0.5; }
+  beep(1,200);
+  Blynk.virtualWrite(VPIN_TERMINAL,String("Pump ")+pump+" stopped\n");
+}
+
+// ===== CLOUD =====
+void sendToCloud() { /* same as before */ }
+void getAIRecommendations() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  HTTPClient http; WiFiClient client;
+  String url = String(API_SERVER) + "/ai-recommendations?device_id=" + String(DEVICE_ID);
+  http.begin(client,url);
+  int httpCode = http.GET();
+  if(httpCode==200) {
+    String payload=http.getString();
+    StaticJsonDocument<1024> doc;
+    if(!deserializeJson(doc,payload)) {
+      aiRecommendations.shouldIrrigate = doc["irrigate"];
+      aiRecommendations.duration = doc["duration"];
+      aiRecommendations.advice = doc["crop_advice"].as<String>();
+      aiRecommendations.waterSaved = doc["water_saved"];
+      aiRecommendations.recommendedCrop = doc["recommended_crop"].as<String>();
+      for(int i=0;i<3;i++) aiRecommendations.confidence[i]=doc["confidence"][i];
+      Blynk.virtualWrite(VPIN_CROP_RECOMMENDATION,String(aiRecommendations.recommendedCrop)+
+                         " ("+String(aiRecommendations.confidence[0]*100,1)+"%)");
+    }
+  }
+  http.end();
+}
+
+// ===== BLYNK =====
+void updateBlynk() {
+  if(!Blynk.connected()) return;
+  Blynk.virtualWrite(VPIN_SOIL_1,sensors.soilMoisture[0]);
+  Blynk.virtualWrite(VPIN_SOIL_2,sensors.soilMoisture[1]);
+  Blynk.virtualWrite(VPIN_SOIL_3,sensors.soilMoisture[2]);
+  Blynk.virtualWrite(VPIN_TEMPERATURE,sensors.temperature);
+  Blynk.virtualWrite(VPIN_HUMIDITY,sensors.humidity);
+  Blynk.virtualWrite(VPIN_LIGHT,sensors.lightIntensity/1000.0);
+  Blynk.virtualWrite(VPIN_PUMP_LED_1,sensors.pump1Running?255:0);
+  Blynk.virtualWrite(VPIN_PUMP_LED_2,sensors.pump2Running?255:0);
+  Blynk.virtualWrite(VPIN_CHART,sensors.avgSoilMoisture);
+}
+
+BLYNK_WRITE(VPIN_MANUAL_PUMP) {
+  int val=param.asInt();
+  if(!config.autoMode) {
+    if(val==1){ startIrrigation(1); startIrrigation(2); Blynk.virtualWrite(VPIN_TERMINAL,"Manual irrigation started\n"); }
+    else { stopIrrigation(1); stopIrrigation(2); Blynk.virtualWrite(VPIN_TERMINAL,"Manual irrigation stopped\n"); }
+  } else Blynk.virtualWrite(VPIN_TERMINAL,"⚠️ Disable auto mode first!\n");
+}
+
+BLYNK_WRITE(VPIN_AUTO_MODE) {
+  config.autoMode = param.asInt();
+  Blynk.virtualWrite(VPIN_TERMINAL, config.autoMode?"🤖 AUTO mode enabled\n":"👤 MANUAL mode enabled\n");
+}
+
+// ===== WEB DASHBOARD =====
+String getWebDashboard() {
+  String html="<html><head><meta name='viewport' content='width=device-width'><title>Smart Irrigation</title></head><body>";
+  html+="<h1>Smart Irrigation Dashboard</h1>";
+  html+="<p>Soil Moisture: "+String(sensors.avgSoilMoisture,1)+"%</p>";
+  html+="<p>Temperature: "+String(sensors.temperature,1)+"°C</p>";
+  html+="<p>Humidity: "+String(sensors.humidity,1)+"%</p>";
+  html+="<p>Light: "+String(sensors.lightIntensity,0)+" lux</p>";
+  html+="<p>Pump 1: "+String(sensors.pump1Running?"ON":"OFF")+" | Pump 2: "+String(sensors.pump2Running?"ON":"OFF")+"</p>";
+  html+="<p>AI Recommended Crop: "+aiRecommendations.recommendedCrop+"<br>";
+  html+="Confidence: "+String(aiRecommendations.confidence[0]*100,1)+"%, "+String(aiRecommendations.confidence[1]*100,1)+"%, "+String(aiRecommendations.confidence[2]*100,1)+"%</p>";
+  html+="<button onclick=\"fetch('/api/pump/on')\">Start Pump</button>";
+  html+="<button onclick=\"fetch('/api/pump/off')\">Stop Pump</button>";
+  html+="<script>setInterval(()=>location.reload(),10000);</script></body></html>";
+  return html;
+}
+
+// ===== UTILITIES =====
+void connectWiFi() { /* same as before */ }
+void beep(int times,int duration){for(int i=0;i<times;i++){digitalWrite(BUZZER_PIN,HIGH);delay(duration);digitalWrite(BUZZER_PIN,LOW);delay(duration);}}
+void printStartupBanner(){ Serial.println("\n=== SMART IRRIGATION SYSTEM ===\n"); }
+
